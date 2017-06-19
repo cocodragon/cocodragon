@@ -1,3 +1,5 @@
+제목 추가
+
 1. sendmail 패키지 설치 확인
 
 # rpm -qa | grep sendmail*
