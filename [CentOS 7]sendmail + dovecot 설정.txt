@@ -1,0 +1,223 @@
+1. sendmail 패키지 설치 확인
+
+# rpm -qa | grep sendmail*
+
+2. sendmail 설치
+
+# yum -y install sendmail sendmail-cf
+
+3. 인증 라이브러리 Sasl 설치
+
+# rpm -qa | grep cyrus*
+cyrus-sasl-2.1.26-20.el7_2.x86_64
+cyrus-sasl-lib-2.1.26-20.el7_2.x86_64
+
+# yum -y install cyrus-sasl-gssapi cyrus-sasl-devel cyrus-sasl-md5 cyrus-sasl-ntlm cyrus-sasl-plain
+
+패키지 확인
+# rpm -qa | grep cyrus*
+cyrus-sasl-md5-2.1.26-20.el7_2.x86_64
+cyrus-sasl-2.1.26-20.el7_2.x86_64
+cyrus-sasl-gssapi-2.1.26-20.el7_2.x86_64
+cyrus-sasl-ntlm-2.1.26-20.el7_2.x86_64
+cyrus-sasl-devel-2.1.26-20.el7_2.x86_64
+cyrus-sasl-lib-2.1.26-20.el7_2.x86_64
+cyrus-sasl-plain-2.1.26-20.el7_2.x86_64
+
+4. sendmail 설정
+
+- configuration 파일 수정
+
+# cd /etc/mail
+# vi sendmail.mc
+
+동적 RELAY의 경우 52,53번째 줄 앞의 dnl 제거
+
+52,53 번째 줄
+dnl TRUST_AUTH_MECH(`EXTERNAL DIGEST-MD5 CRAM-MD5 LOGIN PLAIN')dnl
+dnl define(`confAUTH_MECHANISMS', `EXTERNAL GSSAPI DIGEST-MD5 CRAM-MD5 LOGIN PLAIN')dnl
+
+해당 내용 확인 주석 처리 되어 있으면 주석 해제 (기본 설정에는 주석 처리 되어있지 않음)
+
+118 번째 줄
+DAEMON_OPTIONS(`Port=smtp,Addr=127.0.0.1, Name=MTA')dnl
+해당 줄을
+DAEMON_OPTIONS(`Port=smtp,Addr=0.0.0.0, Name=MTA')dnl
+로 변경
+
+변경된 sendmail.mc 파일을 적용
+
+# m4 /etc/mail/sendmail.mc > /etc/mail/sendmail.cf
+
+파일 변경 확인
+
+# vi sendmail.cf
+268 번째 줄
+O DaemonPortOptions=Port=smtp,Addr=0.0.0.0, Name=MTA
+
+536 번째 줄
+#O AuthMechanisms=EXTERNAL GSSAPI KERBEROS_V4 DIGEST-MD5 CRAM-MD5
+을 주석 해제 하고 다음과 같이 수정
+O AuthMechanisms=EXTERNAL GSSAPI KERBEROS_V4 DIGEST-MD5 CRAM-MD5 LOGIN PLAIN
+
+
+
+- Access 파일 수정
+
+# vi access
+Connect:ncloud24.com                    RELAY
+
+/etc/mail/access : 릴레이 허용파일,기본적으로 로컬만 허용, 허용할 IP,domain추가 한다.
+
+*엑세스 파일 교체되면
+# makemap hash /etc/mail/access < /etc/mail/access
+
+- local-host-names 에 도메인 추가
+# vi local-host-names
+ncloud24.com
+
+- MAKE
+# /etc/mail/make
+
+5. saslauthd 기본 설정 사용 - shadow
+
+# cd /usr/lib64/sasl2/
+# vi Sendmail.conf
+pwcheck_method:saslauthd
+
+위와 같은 내용 추가
+
+6. sendmail 서비스 시작 및 확인
+
+# service sendmail restart
+# service saslauthd restart
+
+# chkconfig sendmail on
+# chkconfig saslauthd on
+
+데몬 확인
+
+# netstat -anp | grep 25
+SMTP 25번 포트가 정상적으로 오픈 되었는지 확인
+
+인증 확인
+
+# telnet localhost 25
+Trying ::1...
+telnet: connect to address ::1: Connection refused
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+220 CentOS6.3_Sendmail ESMTP Sendmail 8.14.4/8.14.4; Mon, 20 Jan 2014 11:41:00 +0900
+ehlo localhost     < 입력
+250-CentOS6.3_Sendmail Hello localhost [127.0.0.1], pleased to meet you
+250-ENHANCEDSTATUSCODES
+250-PIPELINING
+250-8BITMIME
+250-SIZE
+250-DSN
+250-ETRN
+250-AUTH GSSAPI DIGEST-MD5 CRAM-MD5 LOGIN PLAIN
+250-DELIVERBY
+250 HELP
+auth login     < 입력
+334 VXNlcm5hbWU6
+
+7. Dovecot 설치
+
+# yum -y install pam-devel dovecot
+
+pam.d/doevecot에 내용 추가
+# vi /etc/pam.d/dovecot
+
+auth required pam_unix.so nullok
+account required pam_unix.so
+
+8. dovecot 설정 파일 수정
+
+# cd /etc/dovecot
+# vi dovecot.conf
+
+24 번째 줄
+#protocols = imap pop3 lmtp
+주석 해제
+protocols = imap pop3 lmtp
+
+30 번째 줄
+#listen = *, ::
+주석 해제 및 다음과 같이 설정
+listen = *
+
+맨 하단에 다음 내용 추가
+ssl = no
+mail_privileged_group = mail
+
+- conf.d 파일 수정
+
+# cd /etc/dovecot/conf.d
+
+# vi 10-auth.conf
+
+10번째 줄
+#disable_plaintext_auth = yes
+주석 해제
+disable_plaintext_auth = no
+
+# vi 10-logging.conf
+
+7 번째 줄
+주석 해제 하고 다음 내용으로 수정
+log_path = /var/log/dovecot.log
+
+24번째 줄
+주석 해제 하고 다음 내용으로 수정
+auth_verbose = yes
+
+34번째 줄
+주석 해제 하고 다음 내용으로 수정
+auth_debug = yes
+
+38번째 줄
+주석 해제 하고 다음 내용으로 수정
+auth_debug_passwords = yes
+
+# mv 10-ssl.conf 10-ssl.conf.disable
+SSL 파일을 사용하지 않도록 이름 변경
+
+# vi 10-mail.conf
+
+25 번째 줄 주석 해제
+mail_location = mbox:~/mail:INBOX=/var/mail/%u
+
+287 번째 줄 주석 해제
+mbox_read_locks = fcntl
+
+9. 권한 설정
+
+# chmod 775 /var/spool/mail
+# chmod 0600 /var/spool/mail/*
+
+10. dovecot 서비스 실행 및 확인
+
+# service dovecot restart
+
+# chkconfig dovecot on
+
+포트 확인
+110번 포트 LISTEN 확인
+
+TELNET 확인
+# telnet localhost 110
+Trying ::1...
+telnet: connect to address ::1: Connection refused
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
++OK Dovecot ready.
+user ncloud24
++OK
+pass ncloud24pass
++OK Logged in.
+quit
++OK Logging out.
+Connection closed by foreign host.
